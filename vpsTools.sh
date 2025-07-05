@@ -1,5 +1,100 @@
 #!/bin/bash
 
+#dd ubuntu 20.04 
+#bash <(wget --no-check-certificate -qO- 'https://www.moeelf.com/attachment/LinuxShell/InstallNET.sh') -u 20.04 -v 64 -a
+#apt update & apt upgrade -y
+
+change_ssh(){
+    # Check root privileges
+    if [ "$(id -u)" -ne 0 ]; then
+      echo "Error: This script must be run as root" >&2
+      exit 1
+    fi
+    
+    # Backup SSH config file
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak_$(date +%Y%m%d%H%M%S)
+    
+    # Comment out all existing Port configurations
+    sed -i 's/^Port/#Port/g' /etc/ssh/sshd_config
+    
+    # Get new port number
+    read -p "Enter new SSH port (default 22666): " new_port
+    
+    # Set default value
+    if [ -z "$new_port" ]; then
+      new_port=22666
+    fi
+    
+    # Validate port number
+    if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+      echo "Error: Invalid port number. Must be between 1-65535"
+      exit 1
+    fi
+    
+    # Check if port is already in use
+    if ss -tuln | grep -q ":${new_port}\b"; then
+      echo "Error: Port $new_port is already in use"
+      exit 1
+    fi
+    
+    # Add new port configuration
+    echo "# Modified on $(date)" >> /etc/ssh/sshd_config
+    echo "Port $new_port" >> /etc/ssh/sshd_config
+    
+    # Update firewall rules
+    update_firewall() {
+      # Try firewalld
+      if command -v firewall-cmd &> /dev/null; then
+        firewall-cmd --permanent --remove-service=ssh
+        firewall-cmd --permanent --add-port=$new_port/tcp
+        firewall-cmd --reload
+        echo "Updated firewalld rules"
+        return
+      fi
+      
+      # Try ufw
+      if command -v ufw &> /dev/null; then
+        ufw allow $new_port/tcp
+        ufw deny ssh  # Disable default SSH port
+        echo "Updated ufw rules"
+        return
+      fi
+      
+      # Try iptables
+      if command -v iptables &> /dev/null; then
+        iptables -A INPUT -p tcp --dport $new_port -j ACCEPT
+        service iptables save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+        echo "Updated iptables rules"
+        return
+      fi
+      
+      echo "Warning: No supported firewall detected"
+    }
+    
+    # Update SELinux
+    if command -v semanage &> /dev/null; then
+      semanage port -a -t ssh_port_t -p tcp $new_port
+    fi
+    
+    # Restart SSH service
+    if systemctl restart sshd 2>/dev/null || service ssh restart 2>/dev/null; then
+      echo "SSH service restarted"
+    else
+      echo "Warning: Failed to restart SSH service, please restart manually"
+    fi
+    
+    # Display success message
+    echo -e "\n####################################################"
+    echo "# SSH port successfully changed to: $new_port"
+    echo "# Original config backed up as: /etc/ssh/sshd_config.bak_*"
+    echo "# Connect using: ssh -p $new_port user@your-server"
+    echo "####################################################"
+}
+
+ssh_login_file(){
+    echo "not done yet"
+}
+
 cert=/root/cert
 
 enable_bbr(){
@@ -75,7 +170,7 @@ install_docker(){
 }
 
 install_x-ui(){
-    read -e -p "install_x-ui@docker?" isDocker
+    read -e -p "x-ui@docker?" isDocker
     [ $isDocker ] || (return bash <(curl -Ls https://raw.githubusercontent.com/vaxilu/x-ui/master/install.sh))
     docker -v || (echo "docker not installed" && return)
     [ $cert ] || (echo "cert path not exist" && return)
@@ -191,8 +286,11 @@ install_filebrowser(){
 while true; do
   echo "0.autoFlow(1,2,3,5,4,6); 1.enable bbr; 2.enable_IPV4; 3.init; 4.install cert; 5.install docker; a.install x-ui; b.install filebrowser"
   echo "7.install gost(forward rules:41043/ws->40143/ws@domain); 8.install cloudflare-warp; 9.install trojan-go"
+  echo "s.change ssh port; p.change ssh login method"
   read -e -p "input :" num
   case $num in
+    [s]* ) change_ssh;;
+    [p]* ) ssh_login_file;;
     [1]* ) enable_bbr;;
     [2]* ) enable_IPV4;;
     [3]* ) init;;
