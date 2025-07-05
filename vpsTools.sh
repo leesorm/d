@@ -75,7 +75,7 @@ install_docker(){
 }
 
 install_x-ui(){
-    read -e -p "docker?" isDocker
+    read -e -p "install_x-ui@docker?" isDocker
     [ $isDocker ] || (return bash <(curl -Ls https://raw.githubusercontent.com/vaxilu/x-ui/master/install.sh))
     docker -v || (echo "docker not installed" && return)
     [ $cert ] || (echo "cert path not exist" && return)
